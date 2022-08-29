@@ -16,11 +16,12 @@ namespace tcp_pubsub
   ////////////////////////////////////////////////
   
   // Constructor
-  Publisher_Impl::Publisher_Impl(const std::shared_ptr<Executor>& executor)
+  Publisher_Impl::Publisher_Impl(const std::shared_ptr<Executor>& executor, const PublisherTransientLocalSetting& transient_local_setting)
     : is_running_     (false)
     , executor_       (executor)
     , acceptor_       (*executor_->executor_impl_->ioService())
     , log_            (executor_->executor_impl_->logFunction())
+    , transient_local_setting_(transient_local_setting)
   {}
 
   // Destructor
@@ -179,14 +180,48 @@ namespace tcp_pubsub
                 }
               };
 
+    std::function<void(const std::shared_ptr<PublisherSession>&)> transient_local_push_handler
+            = [me = shared_from_this()](const std::shared_ptr<PublisherSession>& session) -> void
+              {
+                // running in asio thread after session accepted and handshake finished
+                if (me->transient_local_setting_.buffer_max_count_ == 0) {
+                  return;
+                }
+                std::vector<std::shared_ptr<std::vector<char>>> buffers_to_send;
+                size_t buffers_full_size = 0;
+                {
+                  std::lock_guard<std::mutex> lk(me->transient_local_mtx_);
+                  me->purgeExpiredTransientLocalBuffers(me->transient_local_buffers_, std::chrono::steady_clock::now());
+                  buffers_to_send.reserve(me->transient_local_buffers_.size());
+                  for (auto &buffer : me->transient_local_buffers_)
+                  {
+                    buffers_to_send.push_back(buffer.buffer_);
+                    buffers_full_size += buffer.buffer_->size();
+                  }
+                }
+                if (buffers_to_send.empty()) return;
+                // session can not continously send buffers, it will drop next send if previous one not confirmed to be written to OS.
+                // so we have to concat these buffers, then send them together to TCP stream.
+                auto big_buffer = std::make_shared<std::vector<char>>();
+                big_buffer->reserve(buffers_full_size);
+                for (auto& buffer : buffers_to_send) {
+                  big_buffer->insert(big_buffer->end(), buffer->begin(), buffer->end());
+                }
+                if (big_buffer->empty()) return;
+                session->pushTransientBuffer(big_buffer);
+              };
+
     // Create a new session
-    auto session = std::make_shared<PublisherSession>(executor_->executor_impl_->ioService(), publisher_session_closed_handler, log_);
+    auto session = std::make_shared<PublisherSession>(executor_->executor_impl_->ioService(), publisher_session_closed_handler, transient_local_push_handler, log_);
     acceptor_.async_accept(session->getSocket()
                           , [session, me = shared_from_this()](asio::error_code ec)
                           {
                             if (ec)
                             {
-                              me->log_(logger::LogLevel::Error, "Publisher " + me->localEndpointToString() + ": Error while waiting for subsriber: " + ec.message());
+                              auto logger_level = logger::LogLevel::Error;
+                              if (ec.value() == static_cast<int>(std::errc::operation_canceled))
+                                logger_level = logger::LogLevel::Info;
+                              me->log_(logger_level, "Publisher " + me->localEndpointToString() + ": Error while waiting for subsriber: " + ec.message());
                               return;
                             }
                             else
@@ -222,7 +257,8 @@ namespace tcp_pubsub
       return false;
     }
 
-    // Don' send data if no subscriber is connected
+    // Don' send data if no subscriber is connected, unless requires stashing to transient local buffers
+    if (transient_local_setting_.buffer_max_count_ == 0)
     {
       std::lock_guard<std::mutex> publisher_sessions_lock(publisher_sessions_mutex_);
       if (publisher_sessions_.empty())
@@ -301,7 +337,28 @@ namespace tcp_pubsub
       }
     }
 
+    if (transient_local_setting_.buffer_max_count_ > 0)
+    {
+      std::lock_guard<std::mutex> lk(transient_local_mtx_);
+      const auto now_tp = std::chrono::steady_clock::now();
+      TransientLocalElement ele;
+      ele.buffer_ = buffer;
+      ele.enqueue_tp_ = now_tp;
+      transient_local_buffers_.push_back(ele);
+      purgeExpiredTransientLocalBuffers(transient_local_buffers_, now_tp);
+    }
+
     return true;
+  }
+
+  void Publisher_Impl::purgeExpiredTransientLocalBuffers(std::list<TransientLocalElement>& buffers, std::chrono::steady_clock::time_point now_tp)
+  {
+    while (buffers.size() > transient_local_setting_.buffer_max_count_ ||
+           (transient_local_setting_.lifespan_ > 0 && !buffers.empty() &&
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now_tp - buffers.front().enqueue_tp_).count() > transient_local_setting_.lifespan_))
+    {
+      buffers.pop_front();
+    }
   }
 
   ////////////////////////////////////////////////

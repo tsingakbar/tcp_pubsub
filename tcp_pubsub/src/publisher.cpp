@@ -8,14 +8,14 @@
 
 namespace tcp_pubsub
 {
-  Publisher::Publisher(const std::shared_ptr<Executor>& executor, const std::string& address, uint16_t port)
-    : publisher_impl_(std::make_shared<Publisher_Impl>(executor))
+  Publisher::Publisher(const std::shared_ptr<Executor>& executor, const PublisherTransientLocalSetting& transient_local_setting, const std::string& address, uint16_t port)
+    : publisher_impl_(std::make_shared<Publisher_Impl>(executor, transient_local_setting))
   {
     publisher_impl_->start(address, port);
   }
 
-  Publisher::Publisher(const std::shared_ptr<Executor>& executor, uint16_t port)
-    : Publisher(executor, "0.0.0.0", port)
+  Publisher::Publisher(const std::shared_ptr<Executor>& executor, const PublisherTransientLocalSetting& transient_local_setting, uint16_t port)
+    : Publisher(executor, transient_local_setting, "0.0.0.0", port)
   {}
 
   Publisher::~Publisher()

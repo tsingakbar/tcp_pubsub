@@ -34,6 +34,7 @@ namespace tcp_pubsub
   public:
     PublisherSession(const std::shared_ptr<asio::io_service>&                               io_service
                     , const std::function<void(const std::shared_ptr<PublisherSession>&)>&  session_closed_handler
+                    , const std::function<void(const std::shared_ptr<PublisherSession>&)>&  transient_local_push_handler
                     , const tcp_pubsub::logger::logger_t&                                        log_function);
 
     // Copy
@@ -74,6 +75,7 @@ namespace tcp_pubsub
   /// Send Data
   //////////////////////////////////////////////
   public:
+    void pushTransientBuffer(const std::shared_ptr<std::vector<char>>& buffer);
     void sendDataBuffer(const std::shared_ptr<std::vector<char>>& buffer);
   private:
     void sendBufferToClient(const std::shared_ptr<std::vector<char>>& buffer);
@@ -100,6 +102,7 @@ namespace tcp_pubsub
 
     // Handlers
     const std::function<void(const std::shared_ptr<PublisherSession>&)>  session_closed_handler_;
+    const std::function<void(const std::shared_ptr<PublisherSession>&)>  transient_local_push_handler_;
     // Logger                                    
     const logger::logger_t                                               log_;                        /// Function for logging
 

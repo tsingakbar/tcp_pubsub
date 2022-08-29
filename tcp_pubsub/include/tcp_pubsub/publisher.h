@@ -17,6 +17,11 @@
 
 namespace tcp_pubsub
 {
+  struct PublisherTransientLocalSetting {
+    uint32_t buffer_max_count_ = 0;
+    int64_t lifespan_ = 0;
+  };
+
   class Publisher_Impl;
 
   /**
@@ -71,7 +76,7 @@ namespace tcp_pubsub
      *              the operating system will usually autoamtically chooose a
      *              free port.
      */
-    TCP_PUBSUB_EXPORT Publisher(const std::shared_ptr<Executor>& executor, const std::string& address, uint16_t port);
+    TCP_PUBSUB_EXPORT Publisher(const std::shared_ptr<Executor> &executor, const PublisherTransientLocalSetting &, const std::string &address, uint16_t port);
 
     /**
      * @brief Creates a new publisher
@@ -99,7 +104,7 @@ namespace tcp_pubsub
      *              parameter, the operating system will usually autoamtically
      *              chooose a free port.
      */
-    TCP_PUBSUB_EXPORT Publisher(const std::shared_ptr<Executor>& executor, uint16_t port = 0);
+    TCP_PUBSUB_EXPORT Publisher(const std::shared_ptr<Executor> &executor, const PublisherTransientLocalSetting &, uint16_t port = 0);
 
     // Copy
     TCP_PUBSUB_EXPORT Publisher(const Publisher&)            = default;

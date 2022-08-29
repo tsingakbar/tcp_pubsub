@@ -18,10 +18,12 @@ namespace tcp_pubsub
   
   PublisherSession::PublisherSession(const std::shared_ptr<asio::io_service>&                               io_service
                                      , const std::function<void(const std::shared_ptr<PublisherSession>&)>& session_closed_handler
+                                     , const std::function<void(const std::shared_ptr<PublisherSession>&)>& transient_local_push_handler
                                      , const tcp_pubsub::logger::logger_t&                                  log_function)
     : io_service_             (io_service)
     , state_                  (State::NotStarted)
     , session_closed_handler_ (session_closed_handler)
+    , transient_local_push_handler_ (transient_local_push_handler)
     , log_                    (log_function)
     , data_socket_            (*io_service_)
     , data_strand_            (*io_service_)
@@ -277,6 +279,7 @@ namespace tcp_pubsub
 
     // Send the buffer directly to the client
     sendBufferToClient(buffer);
+    transient_local_push_handler_(shared_from_this());
     State old_state = state_.exchange(State::Running);
     if (old_state != State::Handshaking)
       state_ = old_state;
@@ -285,6 +288,17 @@ namespace tcp_pubsub
   //////////////////////////////////////////////
   /// Send Data
   //////////////////////////////////////////////
+
+  void PublisherSession::pushTransientBuffer(const std::shared_ptr<std::vector<char>>& buffer)
+  {
+    // called from transient_local_push_handler_
+    std::lock_guard<std::mutex> next_buffer_lock(next_buffer_mutex_);
+    if ((state_ == State::Handshaking) && !sending_in_progress_)
+    {
+      sending_in_progress_ = true;
+      sendBufferToClient(buffer);
+    }
+  }
 
   void PublisherSession::sendDataBuffer(const std::shared_ptr<std::vector<char>>& buffer)
   {

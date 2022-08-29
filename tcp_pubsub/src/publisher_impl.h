@@ -12,6 +12,7 @@
 #include <recycle/shared_pool.hpp>
 
 #include <tcp_pubsub/executor.h>
+#include <tcp_pubsub/publisher.h>
 #include "tcp_pubsub_logger_abstraction.h"
 #include "publisher_session.h"
 
@@ -26,7 +27,7 @@ namespace tcp_pubsub
   
   public:
     // Constructor
-    Publisher_Impl(const std::shared_ptr<Executor>& executor);
+    Publisher_Impl(const std::shared_ptr<Executor>& executor, const PublisherTransientLocalSetting& transient_local_setting);
 
     // Copy
     Publisher_Impl(const Publisher_Impl&)            = delete;
@@ -96,5 +97,17 @@ namespace tcp_pubsub
       using lock_type  = std::lock_guard<mutex_type>;
     };
     recycle::shared_pool<std::vector<char>, buffer_pool_lock_policy_> buffer_pool; /// Buffer pool that let's us reuse memory chunks
+
+    PublisherTransientLocalSetting transient_local_setting_;
+    struct TransientLocalElement
+    {
+      std::shared_ptr<std::vector<char>> buffer_;
+      std::chrono::steady_clock::time_point enqueue_tp_;
+    };
+    std::mutex transient_local_mtx_;
+    std::list<TransientLocalElement> transient_local_buffers_;    /// stores recent samples to implement QOS::transient_local_durability_qos
+
+  private:
+    void purgeExpiredTransientLocalBuffers(std::list<TransientLocalElement>& buffers, std::chrono::steady_clock::time_point now_tp);
   };
 }

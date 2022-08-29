@@ -249,7 +249,10 @@ namespace tcp_pubsub
                                         {
                                           if (ec)
                                           {
-                                            me->log_(logger::LogLevel::Error,  "SubscriberSession " + me->endpointToString() + ": Error reading header length: " + ec.message());
+                                            auto logger_level = logger::LogLevel::Error;
+                                            if (ec.value() == static_cast<int>(std::errc::operation_canceled))
+                                              logger_level = logger::LogLevel::Info;
+                                            me->log_(logger_level,  "SubscriberSession " + me->endpointToString() + ": Error reading header length: " + ec.message());
                                             me->connectionFailedHandler();;
                                             return;
                                           }
