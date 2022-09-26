@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 
 #include "executor_impl.h"
+#include <sys/prctl.h>
 
 namespace tcp_pubsub
 {
@@ -55,7 +56,7 @@ namespace tcp_pubsub
 #endif
     for (size_t i = 0; i < thread_count; i++)
     {
-      thread_pool_.emplace_back([me = shared_from_this()]()
+      thread_pool_.emplace_back([me = shared_from_this(), i]()
                                 {
 #if (TCP_PUBSUB_LOG_DEBUG_ENABLED)
                                   std::stringstream ss;
@@ -65,6 +66,9 @@ namespace tcp_pubsub
                                   me->log_(logger::LogLevel::Debug, "Executor: IoService::Run() in thread " + thread_id);
 #endif
 
+                                  std::ostringstream thread_comm_name;
+                                  thread_comm_name << "EcalIOTcpPS" << i;
+                                  prctl(PR_SET_NAME, thread_comm_name.str().c_str(), nullptr, nullptr, nullptr);
                                   me->io_service_->run();
 
 #if (TCP_PUBSUB_LOG_DEBUG_ENABLED)
